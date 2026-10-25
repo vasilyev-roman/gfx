@@ -25,6 +25,9 @@ SOFTWARE.
 #include "gfx_window.h"
 #include "gfx_scene.h"
 #include "gfx_imgui.h"
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+#include "gfx_memory_tracker.h"
+#endif
 
 #include "glm/gtc/matrix_transform.hpp"
 #include "samplerBlueNoiseErrorDistribution_128x128_OptimizedFor_2d2d2d2d_1spp.cpp"
@@ -54,6 +57,9 @@ float CalculateHaltonNumber(uint32_t index, uint32_t base)
 
 int32_t main()
 {
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+    gfxMemoryTrackerInitialize("RTAO_example");
+#endif
     GfxWindow  window = gfxCreateWindow(1280, 720, "gfx - RTAO");
     GfxContext gfx    = gfxCreateContext(window);
     GfxScene   scene  = gfxCreateScene();

@@ -22,9 +22,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ****************************************************************************/
 #include "gfx_window.h"
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+#include "gfx_memory_tracker.h"
+#endif
 
 int32_t main()
 {
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+    gfxMemoryTrackerInitialize("Mesh_shaders_example");
+#endif
     GfxWindow window = gfxCreateWindow(1280, 720, "gfx - Mesh shaders");
     GfxContext gfx = gfxCreateContext(window);
 

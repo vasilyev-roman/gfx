@@ -5,6 +5,7 @@ project(gfx)
 option(GFX_BUILD_EXAMPLES "Build gfx examples" ON)
 option(GFX_ENABLE_GUI "Build gfx with imgui support" OFF)
 option(GFX_ENABLE_SCENE "Build gfx with scene loading support" OFF)
+option(GFX_ENABLE_MEMORY_TRACKER "Build gfx with memory tracking support" OFF)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -16,6 +17,9 @@ if(GFX_ENABLE_GUI)
 endif()
 if(GFX_ENABLE_SCENE)
     target_sources(gfx PRIVATE gfx_scene.h gfx_scene.cpp)
+endif()
+if(GFX_ENABLE_MEMORY_TRACKER)
+    target_sources(gfx PRIVATE gfx_memory_tracker.h gfx_memory_tracker.cpp)
 endif()
 
 target_compile_features(gfx PUBLIC cxx_std_20)
@@ -346,6 +350,10 @@ if(GFX_ENABLE_SCENE)
         target_compile_definitions(gfx PRIVATE GFX_ENABLE_SCENE_KTX)
     endif()
 
+endif()
+
+if(GFX_ENABLE_MEMORY_TRACKER)
+    target_compile_definitions(gfx PUBLIC GFX_ENABLE_MEMORY_TRACKER)
 endif()
 
 if(GFX_BUILD_EXAMPLES)

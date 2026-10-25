@@ -24,6 +24,9 @@ SOFTWARE.
 
 #include "ibl.h"
 #include "gpu_scene.h"
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+#include "gfx_memory_tracker.h"
+#endif
 #include "fly_camera.h"
 
 #include "glm/gtc/matrix_transform.hpp"
@@ -38,6 +41,9 @@ char const *scene_path           = "data/SciFiHelmet/glTF/SciFiHelmet.gltf";
 
 int32_t main()
 {
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+    gfxMemoryTrackerInitialize("PBR_example");
+#endif
     GfxWindow  window = gfxCreateWindow(1280, 720, "gfx - PBR");
     GfxContext gfx    = gfxCreateContext(window);
     GfxScene   scene  = gfxCreateScene();

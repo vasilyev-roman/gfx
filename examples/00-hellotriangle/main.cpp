@@ -22,9 +22,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ****************************************************************************/
 #include "gfx_window.h"
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+#include "gfx_memory_tracker.h"
+#endif
 
 int main()
 {
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+    gfxMemoryTrackerInitialize("Hello_triangle");
+#endif
     auto window = gfxCreateWindow(1280, 720, "gfx - Hello, triangle!");
     auto gfx = gfxCreateContext(window);
 

@@ -108,7 +108,7 @@ class GfxBuffer { GFX_INTERNAL_NAMED_HANDLE(GfxBuffer); uint64_t size; uint32_t 
                   inline uint32_t getStride() const { return stride; }
                   inline uint64_t getSize() const { return size; } };
 
-GfxBuffer gfxCreateBuffer(GfxContext context, uint64_t size, void const *data = nullptr, GfxCpuAccess cpu_access = kGfxCpuAccess_None);
+GfxBuffer gfxCreateBuffer(GfxContext context, uint64_t size, void const *data = nullptr, GfxCpuAccess cpu_access = kGfxCpuAccess_None, char const *name = nullptr);
 GfxBuffer gfxCreateBufferRange(GfxContext context, GfxBuffer buffer, uint64_t byte_offset, uint64_t size = 0);  // fast path for (sub-)allocating during a frame
 GfxResult gfxDestroyBuffer(GfxContext context, GfxBuffer buffer);
 
@@ -119,9 +119,9 @@ void *gfxBufferGetData(GfxContext context, GfxBuffer buffer);
 //!
 
 template<typename TYPE>
-GfxBuffer gfxCreateBuffer(GfxContext context, uint32_t element_count, void const *data = nullptr, GfxCpuAccess cpu_access = kGfxCpuAccess_None)
+GfxBuffer gfxCreateBuffer(GfxContext context, uint32_t element_count, void const *data = nullptr, GfxCpuAccess cpu_access = kGfxCpuAccess_None, char const *name = nullptr)
 {
-    GfxBuffer buffer = gfxCreateBuffer(context, element_count * sizeof(TYPE), data, cpu_access);
+    GfxBuffer buffer = gfxCreateBuffer(context, element_count * sizeof(TYPE), data, cpu_access, name);
     if(buffer) buffer.setStride((uint32_t)sizeof(TYPE));
     return buffer;
 }
@@ -156,11 +156,11 @@ class GfxTexture { GFX_INTERNAL_NAMED_HANDLE(GfxTexture); uint32_t width; uint32
                    inline uint32_t getMipLevels() const { return mip_levels; }
                    inline float const *getClearValue() const { return clear_value; } };
 
-GfxTexture gfxCreateTexture2D(GfxContext context, DXGI_FORMAT format, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE);  // creates auto-resize window-sized texture
-GfxTexture gfxCreateTexture2D(GfxContext context, uint32_t width, uint32_t height, DXGI_FORMAT format, uint32_t mip_levels = 1, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE);
-GfxTexture gfxCreateTexture2DArray(GfxContext context, uint32_t width, uint32_t height, uint32_t slice_count, DXGI_FORMAT format, uint32_t mip_levels = 1, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE);
-GfxTexture gfxCreateTexture3D(GfxContext context, uint32_t width, uint32_t height, uint32_t depth, DXGI_FORMAT format, uint32_t mip_levels = 1, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE);
-GfxTexture gfxCreateTextureCube(GfxContext context, uint32_t size, DXGI_FORMAT format, uint32_t mip_levels = 1, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE);
+GfxTexture gfxCreateTexture2D(GfxContext context, DXGI_FORMAT format, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, char const *name = nullptr);  // creates auto-resize window-sized texture
+GfxTexture gfxCreateTexture2D(GfxContext context, uint32_t width, uint32_t height, DXGI_FORMAT format, uint32_t mip_levels = 1, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, char const *name = nullptr);
+GfxTexture gfxCreateTexture2DArray(GfxContext context, uint32_t width, uint32_t height, uint32_t slice_count, DXGI_FORMAT format, uint32_t mip_levels = 1, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, char const *name = nullptr);
+GfxTexture gfxCreateTexture3D(GfxContext context, uint32_t width, uint32_t height, uint32_t depth, DXGI_FORMAT format, uint32_t mip_levels = 1, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, char const *name = nullptr);
+GfxTexture gfxCreateTextureCube(GfxContext context, uint32_t size, DXGI_FORMAT format, uint32_t mip_levels = 1, float const *clear_value = nullptr, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE, char const *name = nullptr);
 GfxResult gfxDestroyTexture(GfxContext context, GfxTexture texture);
 
 //!

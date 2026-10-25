@@ -74,6 +74,8 @@ SOFTWARE.
 
 #include "gfx.h"
 #include "gfx_internal_types.h"
+#define GFX_MEMORY_TRACKER_INTERNAL
+#include "gfx_memory_tracker.h"
 
 extern "C"
 {
@@ -411,6 +413,7 @@ class GfxInternal
         D3D12MA::Allocation *allocation_ = nullptr;
         D3D12_RESOURCE_STATES *resource_state_ = nullptr;
         D3D12_RESOURCE_STATES initial_resource_state_ = D3D12_RESOURCE_STATE_COMMON;
+        bool is_range_ = false; // aliases the memory of another buffer
     };
     GfxArray<Buffer> buffers_;
     GfxHandles buffer_handles_;
@@ -1937,7 +1940,7 @@ public:
         return (mesh_device_ != nullptr ? true : false);
     }
 
-    GfxBuffer createBuffer(uint64_t size, void const *data, GfxCpuAccess cpu_access, D3D12_RESOURCE_STATES resource_state = D3D12_RESOURCE_STATE_COMMON)
+    GfxBuffer createBuffer(uint64_t size, void const *data, GfxCpuAccess cpu_access, D3D12_RESOURCE_STATES resource_state = D3D12_RESOURCE_STATE_COMMON, char const *name = nullptr)
     {
         GfxBuffer buffer = {};
         if(cpu_access >= kGfxCpuAccess_Count)
@@ -1977,6 +1980,12 @@ public:
             destroyBuffer(buffer); buffer = {};
             return buffer;
         }
+        buffer.setName(name);
+        SetObjectName(gfx_buffer, buffer.getName());
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized())
+            gfxMemoryTrackerRecordAllocation(buffer.handle, GfxMemoryTrackerResourceType::Buffer, gfx_buffer.allocation_->GetSize(), buffer.getName());
+#endif // GFX_ENABLE_MEMORY_TRACKER
         if(cpu_access != kGfxCpuAccess_None)
         {
             if(cpu_access == kGfxCpuAccess_Write)
@@ -2003,7 +2012,7 @@ public:
         gfx_buffer.initial_resource_state_ = resource_state;
         if(data != nullptr && cpu_access != kGfxCpuAccess_Write)
         {
-            GfxBuffer const upload_buffer = createBuffer(size, data, kGfxCpuAccess_Write);
+            GfxBuffer const upload_buffer = createBuffer(size, data, kGfxCpuAccess_Write, D3D12_RESOURCE_STATE_COMMON, "gfx_TmpUploadBuffer");
             encodeCopyBuffer(buffer, upload_buffer);
             destroyBuffer(upload_buffer);
         }
@@ -2037,6 +2046,7 @@ public:
         if(gfx_buffer_range.data_ != nullptr) gfx_buffer_range.data_ = (char *)gfx_buffer_range.data_ + byte_offset;
         GFX_ASSERT(gfx_buffer_range.resource_ != nullptr && gfx_buffer_range.reference_count_ != nullptr);
         gfx_buffer_range.data_offset_ += byte_offset;
+        gfx_buffer_range.is_range_ = true;
         ++*gfx_buffer_range.reference_count_;   // retain
         buffer_range.cpu_access = buffer.cpu_access;
         strcpy(buffer_range.name, buffer.name);
@@ -2051,6 +2061,11 @@ public:
             return kGfxResult_NoError;
         if(!buffer_handles_.has_handle(buffer.handle))
             return GFX_SET_ERROR(kGfxResult_InvalidOperation, "Cannot destroy invalid buffer object");
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized())
+            if(!buffers_[buffer].is_range_ && !buffers_[buffer].isInterop()) // Very convenient that isInterop checks the allocation_, so it also catches buffers that were failed to create
+                gfxMemoryTrackerRecordRelease(buffer.handle, GfxMemoryTrackerResourceType::Buffer);
+#endif // GFX_ENABLE_MEMORY_TRACKER
         collect(buffers_[buffer]);  // release resources
         buffers_.erase(buffer); // destroy buffer
         buffer_handles_.free_handle(buffer.handle);
@@ -2065,12 +2080,12 @@ public:
         return gfx_buffer.data_;
     }
 
-    GfxTexture createTexture2D(DXGI_FORMAT format, float const *clear_value, D3D12_RESOURCE_FLAGS flags)
+    GfxTexture createTexture2D(DXGI_FORMAT format, float const *clear_value, D3D12_RESOURCE_FLAGS flags, char const *name = nullptr)
     {
-        return createTexture2D(window_width_, window_height_, format, 1, clear_value, flags, Texture::kFlag_AutoResize);
+        return createTexture2D(window_width_, window_height_, format, 1, clear_value, flags, Texture::kFlag_AutoResize, name);
     }
 
-    GfxTexture createTexture2D(uint32_t width, uint32_t height, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS resource_flags, uint32_t flags = 0)
+    GfxTexture createTexture2D(uint32_t width, uint32_t height, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS resource_flags, uint32_t flags = 0, char const *name = nullptr)
     {
         GfxTexture texture = {};
         if(isInterop() && (flags & Texture::kFlag_AutoResize) != 0)
@@ -2109,6 +2124,12 @@ public:
             destroyTexture(texture); texture = {};
             return texture;
         }
+        texture.setName(name);
+        SetObjectName(gfx_texture, texture.getName());
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized())
+            gfxMemoryTrackerRecordAllocation(texture.handle, GfxMemoryTrackerResourceType::Texture2D, gfx_texture.allocation_->GetSize(), texture.getName());
+#endif // GFX_ENABLE_MEMORY_TRACKER
         texture.format = format;
         texture.mip_levels = mip_levels;
         texture.type = GfxTexture::kType_2D;
@@ -2154,7 +2175,7 @@ public:
         return texture;
     }
 
-    GfxTexture createTexture2DArray(uint32_t width, uint32_t height, uint32_t slice_count, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS resource_flags)
+    GfxTexture createTexture2DArray(uint32_t width, uint32_t height, uint32_t slice_count, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS resource_flags, char const *name = nullptr)
     {
         GfxTexture texture = {};
         if(format == DXGI_FORMAT_UNKNOWN || format == DXGI_FORMAT_FORCE_UINT)
@@ -2194,6 +2215,12 @@ public:
             destroyTexture(texture); texture = {};
             return texture;
         }
+        texture.setName(name);
+        SetObjectName(gfx_texture, texture.getName());
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized())
+            gfxMemoryTrackerRecordAllocation(texture.handle, GfxMemoryTrackerResourceType::Texture2DArray, gfx_texture.allocation_->GetSize(), texture.getName());
+#endif // GFX_ENABLE_MEMORY_TRACKER
         texture.format = format;
         texture.mip_levels = mip_levels;
         texture.type = GfxTexture::kType_2DArray;
@@ -2235,7 +2262,7 @@ public:
         return texture;
     }
 
-    GfxTexture createTexture3D(uint32_t width, uint32_t height, uint32_t depth, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS resource_flags)
+    GfxTexture createTexture3D(uint32_t width, uint32_t height, uint32_t depth, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS resource_flags, char const *name = nullptr)
     {
         GfxTexture texture = {};
         if(format == DXGI_FORMAT_UNKNOWN || format == DXGI_FORMAT_FORCE_UINT)
@@ -2275,6 +2302,12 @@ public:
             destroyTexture(texture); texture = {};
             return texture;
         }
+        texture.setName(name);
+        SetObjectName(gfx_texture, texture.getName());
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized())
+            gfxMemoryTrackerRecordAllocation(texture.handle, GfxMemoryTrackerResourceType::Texture3D, gfx_texture.allocation_->GetSize(), texture.getName());
+#endif // GFX_ENABLE_MEMORY_TRACKER
         texture.format = format;
         texture.mip_levels = mip_levels;
         texture.type = GfxTexture::kType_3D;
@@ -2316,7 +2349,7 @@ public:
         return texture;
     }
 
-    GfxTexture createTextureCube(uint32_t size, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS resource_flags)
+    GfxTexture createTextureCube(uint32_t size, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS resource_flags, char const *name = nullptr)
     {
         GfxTexture texture = {};
         if(format == DXGI_FORMAT_UNKNOWN || format == DXGI_FORMAT_FORCE_UINT)
@@ -2349,6 +2382,12 @@ public:
             destroyTexture(texture); texture = {};
             return texture;
         }
+        texture.setName(name);
+        SetObjectName(gfx_texture, texture.getName());
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized())
+            gfxMemoryTrackerRecordAllocation(texture.handle, GfxMemoryTrackerResourceType::TextureCube, gfx_texture.allocation_->GetSize(), texture.getName());
+#endif // GFX_ENABLE_MEMORY_TRACKER
         texture.format = format;
         texture.mip_levels = mip_levels;
         texture.type = GfxTexture::kType_Cube;
@@ -2396,6 +2435,14 @@ public:
             return kGfxResult_NoError;
         if(!texture_handles_.has_handle(texture.handle))
             return GFX_SET_ERROR(kGfxResult_InvalidOperation, "Cannot destroy invalid texture object");
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized())
+            if(!textures_[texture].isInterop())
+            {
+                GfxMemoryTrackerResourceType const type = gfxMemoryTrackerGetTextureType(texture);
+                gfxMemoryTrackerRecordRelease(texture.handle, type);
+            }
+#endif // GFX_ENABLE_MEMORY_TRACKER
         collect(textures_[texture]);    // release resources
         textures_.erase(texture);   // destroy texture object
         texture_handles_.free_handle(texture.handle);
@@ -2710,10 +2757,9 @@ public:
         size_t const old_size = gfx_blas.bvh_buffer_.getSize();
         if(compacted_size_desc.CompactedSizeInBytes == 0 || compacted_size_desc.CompactedSizeInBytes > old_size)
             return GFX_SET_ERROR(kGfxResult_InternalError, "Can't readback compacted bottom level acceleration structure size; possible sync issue");
-        GfxBuffer compacted_buffer = createBuffer(compacted_size_desc.CompactedSizeInBytes, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+        GfxBuffer compacted_buffer = createBuffer(compacted_size_desc.CompactedSizeInBytes, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, *blas.getName() ? blas.getName() : "gfx_BLASBuffer");
         Buffer const &gfx_compacted_buffer = buffers_[compacted_buffer];
         Buffer const &gfx_original_bvh = buffers_[gfx_blas.bvh_buffer_];
-        compacted_buffer.setName(gfx_blas.bvh_buffer_.getName());
         D3D12_GPU_VIRTUAL_ADDRESS const src_address = gfx_original_bvh.resource_->GetGPUVirtualAddress() + gfx_original_bvh.data_offset_;
         D3D12_GPU_VIRTUAL_ADDRESS const dst_address = gfx_compacted_buffer.resource_->GetGPUVirtualAddress() + gfx_compacted_buffer.data_offset_;
         dxr_command_list_->CopyRaytracingAccelerationStructure(dst_address, src_address, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
@@ -2870,7 +2916,7 @@ public:
             {
                 destroyBuffer(bvh_buffer);
                 blas_inputs.Flags &= ~D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
-                bvh_buffer = createBuffer(bvh_data_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+                bvh_buffer = createBuffer(bvh_data_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, *blas.getName() ? blas.getName() : "gfx_BLASBuffer");
                 if(!bvh_buffer)
                     return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to create bottom level acceleration structure buffer");
             }
@@ -2878,8 +2924,8 @@ public:
             {
                 if(!gfx_blas.bvh_compact_size_buffer_)
                 {
-                    gfx_blas.bvh_compact_size_buffer_ = createBuffer(compact_size, nullptr, kGfxCpuAccess_None);
-                    gfx_blas.bvh_compact_size_readback_buffer_ = createBuffer(compact_size, nullptr, kGfxCpuAccess_Read);
+                    gfx_blas.bvh_compact_size_buffer_ = createBuffer(compact_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_COMMON, "gfx_BLASCompactSizeBuffer");
+                    gfx_blas.bvh_compact_size_readback_buffer_ = createBuffer(compact_size, nullptr, kGfxCpuAccess_Read, D3D12_RESOURCE_STATE_COMMON, "gfx_BLASCompactSizeReadbackBuffer");
                     // We could pass `D3D12_RESOURCE_STATE_UNORDERED_ACCESS` to `createBuffer` directly,
                     // but then DX12 spams warnings about "Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS".
                     // So, in order to suppress them, we do this.
@@ -3177,7 +3223,7 @@ public:
         {
             destroyBuffer(gfx_acceleration_structure.bvh_buffer_);
             tlas_inputs.Flags &= ~D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
-            gfx_acceleration_structure.bvh_buffer_ = createBuffer(bvh_data_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+            gfx_acceleration_structure.bvh_buffer_ = createBuffer(bvh_data_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, *tlas.getName() ? tlas.getName() : "gfx_TLASBuffer");
             if(!gfx_acceleration_structure.bvh_buffer_)
                 return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to create acceleration structure buffer");
         }
@@ -3569,13 +3615,14 @@ public:
         for(uint32_t i = 0; i < kGfxShaderGroupType_Count; ++i)
         {
             size_t sbt_buffer_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT - 1 + gfx_sbt.sbt_max_record_stride_[i] * entry_count[i];
-            gfx_sbt.sbt_buffers_[i] = createBuffer(sbt_buffer_size, nullptr, kGfxCpuAccess_None);
+            char   buffer_name[64];
+            GFX_SNPRINTF(buffer_name, sizeof(buffer_name), "gfx_SbtBuffer%u", i);
+            gfx_sbt.sbt_buffers_[i] = createBuffer(sbt_buffer_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_COMMON, buffer_name);
             if(!gfx_sbt.sbt_buffers_[i])
             {
                 GFX_PRINT_ERROR(kGfxResult_OutOfMemory, "Unable to allocate memory for shader binding table");
                 return sbt;
             }
-            gfx_sbt.sbt_buffers_[i].setName("gfx_SbtBuffer");
         }
         gfx_sbt.ray_generation_shader_record_ = gfx_sbt.sbt_buffers_[kGfxShaderGroupType_Raygen] ?
             D3D12_GPU_VIRTUAL_ADDRESS_RANGE{
@@ -3843,7 +3890,7 @@ public:
             command_list_->CopyResource(dst_texture.resource_, src_texture.resource_);
         else
         {
-            for(uint32_t mip_level = 0; mip_level < min(dst.mip_levels, src.mip_levels); ++mip_level)
+            for(uint32_t mip_level = 0; mip_level < GFX_MIN(dst.mip_levels, src.mip_levels); ++mip_level)
             {
                 D3D12_TEXTURE_COPY_LOCATION dst_location = {};
                 D3D12_TEXTURE_COPY_LOCATION src_location = {};
@@ -3980,10 +4027,9 @@ public:
                     destroyBuffer(texture_upload_buffer_);
                     texture_upload_buffer_size += (texture_upload_buffer_size + 2) >> 1;
                     texture_upload_buffer_size = GFX_ALIGN(texture_upload_buffer_size, 65536);
-                    texture_upload_buffer_ = createBuffer(texture_upload_buffer_size, nullptr, kGfxCpuAccess_None);
+                    texture_upload_buffer_ = createBuffer(texture_upload_buffer_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_COMMON, "gfx_TextureUploadBuffer");
                     if(!texture_upload_buffer_)
                         return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to allocate memory to upload texture data");
-                    texture_upload_buffer_.setName("gfx_TextureUploadBuffer");
                 }
                 texture_upload_buffer = &buffers_[texture_upload_buffer_];
                 SetObjectName(*texture_upload_buffer, texture_upload_buffer_.name);
@@ -4645,13 +4691,12 @@ public:
             device_->CreateQueryHeap(&query_heap_desc, IID_PPV_ARGS(&query_heap));
             if(query_heap == nullptr)
                 return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to create query heap for timestamp query object");
-            GfxBuffer query_buffer = createBuffer(timestamp_query_heap_size, nullptr, kGfxCpuAccess_Read);
+            GfxBuffer query_buffer = createBuffer(timestamp_query_heap_size, nullptr, kGfxCpuAccess_Read, D3D12_RESOURCE_STATE_COMMON, "gfx_TimestampQueryHeapBuffer");
             if(!query_buffer)
             {
                 query_heap->Release();  // release resource
                 return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to allocate memory for timestamp query heap buffer");
             }
-            query_buffer.setName("gfx_TimestampQueryHeapBuffer");
             collect(timestamp_query_heap.query_heap_);
             destroyBuffer(timestamp_query_heap.query_buffer_);
             timestamp_query_heap.timestamp_queries_.clear();
@@ -4749,10 +4794,9 @@ public:
             destroyBuffer(texture_upload_buffer_);
             scratch_buffer_size += (scratch_buffer_size + 2) >> 1;
             scratch_buffer_size = GFX_ALIGN(scratch_buffer_size, 65536);
-            texture_upload_buffer_ = createBuffer(scratch_buffer_size, nullptr, kGfxCpuAccess_None);
+            texture_upload_buffer_ = createBuffer(scratch_buffer_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_COMMON, "gfx_TextureUploadBuffer");
             if(!texture_upload_buffer_)
                 return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to allocate scratch memory for scan");
-            texture_upload_buffer_.setName("gfx_TextureUploadBuffer");
         }
         GfxBuffer const scan_level_1_buffer = createBufferRange(texture_upload_buffer_, 0, (uint64_t)num_groups_level_1 << 2);
         GfxBuffer const scan_level_2_buffer = createBufferRange(texture_upload_buffer_, (uint64_t)num_groups_level_1 << 2, (uint64_t)num_groups_level_2 << 2);
@@ -4880,10 +4924,9 @@ public:
             destroyBuffer(texture_upload_buffer_);
             scratch_buffer_size += (scratch_buffer_size + 2) >> 1;
             scratch_buffer_size = GFX_ALIGN(scratch_buffer_size, 65536);
-            texture_upload_buffer_ = createBuffer(scratch_buffer_size, nullptr, kGfxCpuAccess_None);
+            texture_upload_buffer_ = createBuffer(scratch_buffer_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_COMMON, "gfx_TextureUploadBuffer");
             if(!texture_upload_buffer_)
                 return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to allocate scratch memory for scan");
-            texture_upload_buffer_.setName("gfx_TextureUploadBuffer");
         }
         GfxBuffer const reduce_level_1_buffer = createBufferRange(texture_upload_buffer_, 0, (uint64_t)num_groups_level_1 << 2);
         GfxBuffer const reduce_level_2_buffer = createBufferRange(texture_upload_buffer_, (uint64_t)num_groups_level_1 << 2, (uint64_t)num_groups_level_2 << 2);
@@ -4988,10 +5031,9 @@ public:
             destroyBuffer(sort_scratch_buffer_);
             scratch_buffer_size += (scratch_buffer_size + 2) >> 1;
             scratch_buffer_size = GFX_ALIGN(scratch_buffer_size, 65536);
-            sort_scratch_buffer_ = createBuffer(scratch_buffer_size, nullptr, kGfxCpuAccess_None);
+            sort_scratch_buffer_ = createBuffer(scratch_buffer_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_COMMON, "gfx_SortScratchBuffer");
             if(!sort_scratch_buffer_)
                 return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to allocate scratch memory for sort");
-            sort_scratch_buffer_.setName("gfx_SortScratchBuffer");
         }
         GfxBuffer const scratch_keys = createBufferRange(sort_scratch_buffer_, 0, (uint64_t)num_keys << 2);
         GfxBuffer const scratch_values = createBufferRange(sort_scratch_buffer_, (uint64_t)num_keys << 2, (uint64_t)num_keys << 2);
@@ -5460,7 +5502,16 @@ public:
             return kGfxResult_InvalidParameter; // invalid texture object
         Texture &gfx_texture = textures_[texture];
         if((state & D3D12_RESOURCE_STATE_UNORDERED_ACCESS) != 0)
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        {
+            D3D12MA::Allocation* const previous_allocation = gfx_texture.allocation_;
+#endif
             ensureTextureHasUsageFlag(gfx_texture, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+            if(gfxMemoryTrackerIsInitialized() && gfx_texture.allocation_ != previous_allocation)
+                gfxMemoryTrackerRecordResize(texture.handle, gfxMemoryTrackerGetTextureType(texture), gfx_texture.allocation_->GetSize());
+        }
+#endif
         if((state & D3D12_RESOURCE_STATE_RENDER_TARGET) != 0)
         {
             uint32_t depth = texture.depth;
@@ -5539,6 +5590,10 @@ public:
             collect(gfx_buffer);    // release previous buffer
             gfx_buffer.resource_ = resource;
             gfx_buffer.allocation_ = allocation;
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+            if(gfxMemoryTrackerIsInitialized())
+                gfxMemoryTrackerRecordResize(buffer.handle, GfxMemoryTrackerResourceType::Buffer, allocation->GetSize());
+#endif // GFX_ENABLE_MEMORY_TRACKER
             gfx_buffer.flags_ &= ~Object::kFlag_Named;
             gfx_buffer.reference_count_  = (uint32_t *)gfxMalloc(sizeof(uint32_t));
             *gfx_buffer.reference_count_ = 1;   // retain
@@ -5599,6 +5654,10 @@ public:
             collect(gfx_texture);    // release previous texture
             gfx_texture.Object::flags_ &= ~Object::kFlag_Named;
             gfx_texture.allocation_ = allocation;
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+            if(gfxMemoryTrackerIsInitialized())
+                gfxMemoryTrackerRecordResize(texture.handle, gfxMemoryTrackerGetTextureType(texture), allocation->GetSize());
+#endif // GFX_ENABLE_MEMORY_TRACKER
             gfx_texture.resource_ = resource;
             gfx_texture.resource_state_ = D3D12_RESOURCE_STATE_COMMON;
             gfx_texture.initial_resource_state_ = D3D12_RESOURCE_STATE_COMMON;
@@ -7342,7 +7401,17 @@ private:
                     if(parameter.parameter_ != nullptr && parameter.id_ != parameter.parameter_->id_ && parameter.parameter_->type_ == Program::Parameter::kType_Image)
                         for(uint32_t j = 0; j < parameter.parameter_->data_.image_.texture_count; ++j)
                             if(texture_handles_.has_handle(parameter.parameter_->data_.image_.textures_[j].handle))
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+                            {
+                                GfxTexture const& texture = parameter.parameter_->data_.image_.textures_[j];
+                                D3D12MA::Allocation* const previous_allocation = textures_[texture].allocation_;
+#endif
                                 ensureTextureHasUsageFlag(textures_[parameter.parameter_->data_.image_.textures_[j]], D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+                                if(gfxMemoryTrackerIsInitialized() && textures_[texture].allocation_ != previous_allocation)
+                                    gfxMemoryTrackerRecordResize(texture.handle, gfxMemoryTrackerGetTextureType(texture), textures_[texture].allocation_->GetSize());
+                            }
+#endif
                     break;
                 case Kernel::Parameter::kType_AccelerationStructure:
                     if(parameter.parameter_ != nullptr && parameter.id_ == parameter.parameter_->id_)
@@ -7512,7 +7581,7 @@ private:
                 if(last_record_it == sbt->shader_records_[i].rend()) continue;
                 uint32_t record_count = last_record_it->first + 1;
                 size_t sbt_buffer_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT - 1 + kernel.sbt_record_stride_[i] * record_count;
-                GfxBuffer const upload_gfx_buffer = createBuffer(sbt_buffer_size, nullptr, kGfxCpuAccess_Write);
+                GfxBuffer const upload_gfx_buffer = createBuffer(sbt_buffer_size, nullptr, kGfxCpuAccess_Write, D3D12_RESOURCE_STATE_COMMON, "gfx_SBTBuffer");
                 Buffer &upload_buffer = buffers_[upload_gfx_buffer];
                 Buffer &sbt_buffer = buffers_[sbt->sbt_buffers_[i]];
                 uint64_t upload_buffer_offset = upload_buffer.data_offset_;
@@ -7664,7 +7733,14 @@ private:
 
     GfxResult ensureTextureHasDepthStencilView(GfxTexture const &texture, Texture &gfx_texture, uint32_t mip_level, uint32_t slice)
     {
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        D3D12MA::Allocation* const previous_allocation = gfx_texture.allocation_;
+#endif
         GFX_TRY(ensureTextureHasUsageFlag(gfx_texture, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized() && gfx_texture.allocation_ != previous_allocation)
+            gfxMemoryTrackerRecordResize(texture.handle, gfxMemoryTrackerGetTextureType(texture), gfx_texture.allocation_->GetSize());
+#endif
         GFX_ASSERT(mip_level < ARRAYSIZE(gfx_texture.dsv_descriptor_slots_));
         GFX_ASSERT(slice < gfx_texture.dsv_descriptor_slots_[mip_level].size());
         if(gfx_texture.dsv_descriptor_slots_[mip_level][slice] == 0xFFFFFFFFu)
@@ -7695,7 +7771,14 @@ private:
 
     GfxResult ensureTextureHasRenderTargetView(GfxTexture const &texture, Texture &gfx_texture, uint32_t mip_level, uint32_t slice)
     {
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        D3D12MA::Allocation* const previous_allocation = gfx_texture.allocation_;
+#endif
         GFX_TRY(ensureTextureHasUsageFlag(gfx_texture, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET));
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized() && gfx_texture.allocation_ != previous_allocation)
+            gfxMemoryTrackerRecordResize(texture.handle, gfxMemoryTrackerGetTextureType(texture), gfx_texture.allocation_->GetSize());
+#endif
         GFX_ASSERT(mip_level < ARRAYSIZE(gfx_texture.rtv_descriptor_slots_));
         GFX_ASSERT(slice < gfx_texture.rtv_descriptor_slots_[mip_level].size());
         if(gfx_texture.rtv_descriptor_slots_[mip_level][slice] == 0xFFFFFFFFu)
@@ -7742,9 +7825,10 @@ private:
             constant_buffer_size += ((constant_buffer_size + 2) >> 1);
             constant_buffer_size = GFX_ALIGN(constant_buffer_size, 65536);
             destroyBuffer(constant_buffer_pool_[fence_index_]); // release previous memory
-            constant_buffer_pool_[fence_index_] = createBuffer(constant_buffer_size, nullptr, kGfxCpuAccess_Write);
+            char name[kGfxConstant_MaxNameLength + 1];
+            GFX_SNPRINTF(name, sizeof(name), "gfx_ConstantBufferPool%u", fence_index_);
+            constant_buffer_pool_[fence_index_] = createBuffer(constant_buffer_size, nullptr, kGfxCpuAccess_Write, D3D12_RESOURCE_STATE_COMMON, name);
             if(!constant_buffer_pool_[fence_index_]) { return buffer; } // out of memory
-            GFX_SNPRINTF(constant_buffer_pool_[fence_index_].name, sizeof(constant_buffer_pool_[fence_index_].name), "gfx_ConstantBufferPool%u", fence_index_);
             constant_buffer = &buffers_[constant_buffer_pool_[fence_index_]];
             SetObjectName(*constant_buffer, constant_buffer_pool_[fence_index_].name);
         }
@@ -7766,9 +7850,10 @@ private:
             constant_buffer_size += ((constant_buffer_size + 2) >> 1);
             constant_buffer_size = GFX_ALIGN(constant_buffer_size, 65536);
             destroyBuffer(constant_buffer_pool_[fence_index_]); // release previous memory
-            constant_buffer_pool_[fence_index_] = createBuffer(constant_buffer_size, nullptr, kGfxCpuAccess_Write);
+            char name[kGfxConstant_MaxNameLength + 1];
+            GFX_SNPRINTF(name, sizeof(name), "gfx_ConstantBufferPool%u", fence_index_);
+            constant_buffer_pool_[fence_index_] = createBuffer(constant_buffer_size, nullptr, kGfxCpuAccess_Write, D3D12_RESOURCE_STATE_COMMON, name);
             if(!constant_buffer_pool_[fence_index_]) { data = nullptr; return gpu_addr; }   // out of memory
-            GFX_SNPRINTF(constant_buffer_pool_[fence_index_].name, sizeof(constant_buffer_pool_[fence_index_].name), "gfx_ConstantBufferPool%u", fence_index_);
             constant_buffer = &buffers_[constant_buffer_pool_[fence_index_]];
             SetObjectName(*constant_buffer, constant_buffer_pool_[fence_index_].name);
         }
@@ -7786,10 +7871,9 @@ private:
         {
             destroyBuffer(raytracing_scratch_buffer_);
             scratch_data_size = GFX_ALIGN(scratch_data_size, 65536);
-            raytracing_scratch_buffer_ = createBuffer(scratch_data_size, nullptr, kGfxCpuAccess_None);
+            raytracing_scratch_buffer_ = createBuffer(scratch_data_size, nullptr, kGfxCpuAccess_None, D3D12_RESOURCE_STATE_COMMON, "gfx_RaytracingScratchBuffer");
             if(!raytracing_scratch_buffer_)
                 return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to create raytracing scratch buffer");
-            strcpy(raytracing_scratch_buffer_.name, "gfx_RaytracingScratchBuffer");
             Buffer &gfx_buffer = buffers_[raytracing_scratch_buffer_];
             SetObjectName(gfx_buffer, raytracing_scratch_buffer_.name);
         }
@@ -9210,10 +9294,9 @@ private:
             draw_id_buffer_size = GFX_ALIGN(draw_id_buffer_size, 65536);
             std::vector<uint32_t> draw_ids((size_t)(draw_id_buffer_size / sizeof(uint32_t)));
             for(size_t i = 0; i < draw_ids.size(); ++i) draw_ids[i] = static_cast<uint32_t>(i);
-            draw_id_buffer_ = createBuffer(draw_id_buffer_size, draw_ids.data(), kGfxCpuAccess_None, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+            draw_id_buffer_ = createBuffer(draw_id_buffer_size, draw_ids.data(), kGfxCpuAccess_None, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, "gfx_DrawIDBuffer");
             if(!draw_id_buffer_)
                 return GFX_SET_ERROR(kGfxResult_OutOfMemory, "Unable to create the drawID buffer");
-            draw_id_buffer_.setName("gfx_DrawIDBuffer");
             force_install_draw_id_buffer_ = true;
         }
         if(force_install_draw_id_buffer_)
@@ -10190,6 +10273,10 @@ private:
             collect(texture);   // release previous texture
             texture.resource_ = resource;
             texture.allocation_ = allocation;
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+            if(gfxMemoryTrackerIsInitialized())
+                gfxMemoryTrackerRecordResize(texture_handles_.get_handle(textures_.get_index(i)), GfxMemoryTrackerResourceType::Texture2D, allocation->GetSize());
+#endif // GFX_ENABLE_MEMORY_TRACKER
             texture.Object::flags_ &= ~Object::kFlag_Named;
             texture.resource_state_ = D3D12_RESOURCE_STATE_COMMON;
             texture.initial_resource_state_ = D3D12_RESOURCE_STATE_COMMON;
@@ -10635,12 +10722,12 @@ bool gfxIsInteropContext(GfxContext context)
     return gfx->isInterop();
 }
 
-GfxBuffer gfxCreateBuffer(GfxContext context, uint64_t size, void const *data, GfxCpuAccess cpu_access)
+GfxBuffer gfxCreateBuffer(GfxContext context, uint64_t size, void const *data, GfxCpuAccess cpu_access, char const *name)
 {
     GfxBuffer const buffer = {};
     GfxInternal *gfx = GfxInternal::GetGfx(context);
     if(!gfx) return buffer; // invalid context
-    return gfx->createBuffer(size, data, cpu_access);
+    return gfx->createBuffer(size, data, cpu_access, D3D12_RESOURCE_STATE_COMMON, name);
 }
 
 GfxBuffer gfxCreateBufferRange(GfxContext context, GfxBuffer buffer, uint64_t byte_offset, uint64_t size)
@@ -10665,44 +10752,44 @@ void *gfxBufferGetData(GfxContext context, GfxBuffer buffer)
     return gfx->getBufferData(buffer);
 }
 
-GfxTexture gfxCreateTexture2D(GfxContext context, DXGI_FORMAT format, float const *clear_value, D3D12_RESOURCE_FLAGS flags)
+GfxTexture gfxCreateTexture2D(GfxContext context, DXGI_FORMAT format, float const *clear_value, D3D12_RESOURCE_FLAGS flags, char const *name)
 {
     GfxTexture const texture = {};
     GfxInternal *gfx = GfxInternal::GetGfx(context);
     if(!gfx) return texture;    // invalid context
-    return gfx->createTexture2D(format, clear_value, flags);
+    return gfx->createTexture2D(format, clear_value, flags, name);
 }
 
-GfxTexture gfxCreateTexture2D(GfxContext context, uint32_t width, uint32_t height, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS flags)
+GfxTexture gfxCreateTexture2D(GfxContext context, uint32_t width, uint32_t height, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS flags, char const *name)
 {
     GfxTexture const texture = {};
     GfxInternal *gfx = GfxInternal::GetGfx(context);
     if(!gfx) return texture;    // invalid context
-    return gfx->createTexture2D(width, height, format, mip_levels, clear_value, flags);
+    return gfx->createTexture2D(width, height, format, mip_levels, clear_value, flags, 0, name);
 }
 
-GfxTexture gfxCreateTexture2DArray(GfxContext context, uint32_t width, uint32_t height, uint32_t slice_count, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS flags)
+GfxTexture gfxCreateTexture2DArray(GfxContext context, uint32_t width, uint32_t height, uint32_t slice_count, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS flags, char const *name)
 {
     GfxTexture const texture = {};
     GfxInternal *gfx = GfxInternal::GetGfx(context);
     if(!gfx) return texture;    // invalid context
-    return gfx->createTexture2DArray(width, height, slice_count, format, mip_levels, clear_value, flags);
+    return gfx->createTexture2DArray(width, height, slice_count, format, mip_levels, clear_value, flags, name);
 }
 
-GfxTexture gfxCreateTexture3D(GfxContext context, uint32_t width, uint32_t height, uint32_t depth, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS flags)
+GfxTexture gfxCreateTexture3D(GfxContext context, uint32_t width, uint32_t height, uint32_t depth, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS flags, char const *name)
 {
     GfxTexture const texture = {};
     GfxInternal *gfx = GfxInternal::GetGfx(context);
     if(!gfx) return texture;    // invalid context
-    return gfx->createTexture3D(width, height, depth, format, mip_levels, clear_value, flags);
+    return gfx->createTexture3D(width, height, depth, format, mip_levels, clear_value, flags, name);
 }
 
-GfxTexture gfxCreateTextureCube(GfxContext context, uint32_t size, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS flags)
+GfxTexture gfxCreateTextureCube(GfxContext context, uint32_t size, DXGI_FORMAT format, uint32_t mip_levels, float const *clear_value, D3D12_RESOURCE_FLAGS flags, char const *name)
 {
     GfxTexture const texture = {};
     GfxInternal *gfx = GfxInternal::GetGfx(context);
     if(!gfx) return texture;    // invalid context
-    return gfx->createTextureCube(size, format, mip_levels, clear_value, flags);
+    return gfx->createTextureCube(size, format, mip_levels, clear_value, flags, name);
 }
 
 GfxResult gfxDestroyTexture(GfxContext context, GfxTexture texture)
