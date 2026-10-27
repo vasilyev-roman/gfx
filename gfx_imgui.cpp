@@ -171,15 +171,14 @@ public:
             IM_ASSERT(tex->TexID == ImTextureID_Invalid && tex->BackendUserData == nullptr);
             IM_ASSERT(tex->Format == ImTextureFormat_RGBA32);
             GfxTexture *texture = new GfxTexture();
-            *texture = gfxCreateTexture2D(gfx_, (uint32_t)tex->Width, (uint32_t)tex->Height, DXGI_FORMAT_R8G8B8A8_UNORM);
+            *texture = gfxCreateTexture2D(gfx_, (uint32_t)tex->Width, (uint32_t)tex->Height, DXGI_FORMAT_R8G8B8A8_UNORM, 1, nullptr, D3D12_RESOURCE_FLAG_NONE, "gfx_ImGuiTexture");
             if(!*texture)
             {
                 delete texture;
                 return;
             }
-            texture->setName("gfx_ImGuiTexture");
             uint64_t const size = (uint64_t)tex->GetPitch() * (uint64_t)tex->Height;
-            GfxBuffer upload_buffer = gfxCreateBuffer(gfx_, size, tex->GetPixels(), kGfxCpuAccess_Write);
+            GfxBuffer upload_buffer = gfxCreateBuffer(gfx_, size, tex->GetPixels(), kGfxCpuAccess_Write, "ImGuiUploadBuffer");
             gfxCommandCopyBufferToTexture(gfx_, *texture, upload_buffer);
             gfxDestroyBuffer(gfx_, upload_buffer);
             tex->SetTexID((ImTextureID)(intptr_t)texture);
@@ -192,7 +191,7 @@ public:
             GfxTexture *texture = (GfxTexture *)tex->BackendUserData;
             IM_ASSERT(texture != nullptr);
             uint64_t const size = (uint64_t)tex->GetPitch() * (uint64_t)tex->Height;
-            GfxBuffer upload_buffer = gfxCreateBuffer(gfx_, size, tex->GetPixels(), kGfxCpuAccess_Write);
+            GfxBuffer upload_buffer = gfxCreateBuffer(gfx_, size, tex->GetPixels(), kGfxCpuAccess_Write, "ImGuiUploadBuffer");
             gfxCommandCopyBufferToTexture(gfx_, *texture, upload_buffer);
             gfxDestroyBuffer(gfx_, upload_buffer);
             tex->SetStatus(ImTextureStatus_OK);
