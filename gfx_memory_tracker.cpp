@@ -39,11 +39,12 @@ char const *GetGfxMemoryTrackerResourceTypeName(GfxMemoryTrackerResourceType typ
 {
     switch(type)
     {
-    case GfxMemoryTrackerResourceType::Buffer:          return "Buffer";
-    case GfxMemoryTrackerResourceType::Texture2D:       return "Texture2D";
-    case GfxMemoryTrackerResourceType::Texture2DArray:  return "Texture2DArray";
-    case GfxMemoryTrackerResourceType::Texture3D:       return "Texture3D";
-    case GfxMemoryTrackerResourceType::TextureCube:     return "TextureCube";
+    case GfxMemoryTrackerResourceType::DeviceBuffer:     return "DeviceBuffer";
+    case GfxMemoryTrackerResourceType::CpuVisibleBuffer: return "CpuVisibleBuffer";
+    case GfxMemoryTrackerResourceType::Texture2D:        return "Texture2D";
+    case GfxMemoryTrackerResourceType::Texture2DArray:   return "Texture2DArray";
+    case GfxMemoryTrackerResourceType::Texture3D:        return "Texture3D";
+    case GfxMemoryTrackerResourceType::TextureCube:      return "TextureCube";
     default:
         break;
     }
@@ -276,6 +277,13 @@ GfxMemoryTrackerResourceType gfxMemoryTrackerGetTextureType(GfxTexture const& te
     if(texture.is3D())      return GfxMemoryTrackerResourceType::Texture3D;
     if(texture.isCube())    return GfxMemoryTrackerResourceType::TextureCube;
     return GfxMemoryTrackerResourceType::Texture2D;
+}
+
+GfxMemoryTrackerResourceType gfxMemoryTrackerGetBufferType(GfxBuffer const& buffer)
+{
+    return (buffer.getCpuAccess() == kGfxCpuAccess_None
+        ? GfxMemoryTrackerResourceType::DeviceBuffer
+        : GfxMemoryTrackerResourceType::CpuVisibleBuffer);
 }
 
 GfxResult gfxMemoryTrackerInsertTag(char const* tag)

@@ -1982,10 +1982,6 @@ public:
         }
         buffer.setName(name);
         SetObjectName(gfx_buffer, buffer.getName());
-#ifdef GFX_ENABLE_MEMORY_TRACKER
-        if(gfxMemoryTrackerIsInitialized())
-            gfxMemoryTrackerRecordAllocation(buffer.handle, GfxMemoryTrackerResourceType::Buffer, gfx_buffer.allocation_->GetSize(), buffer.getName());
-#endif // GFX_ENABLE_MEMORY_TRACKER
         if(cpu_access != kGfxCpuAccess_None)
         {
             if(cpu_access == kGfxCpuAccess_Write)
@@ -2000,6 +1996,10 @@ public:
         }
         buffer.size = size;
         buffer.cpu_access = cpu_access;
+#ifdef GFX_ENABLE_MEMORY_TRACKER
+        if(gfxMemoryTrackerIsInitialized())
+            gfxMemoryTrackerRecordAllocation(buffer.handle, gfxMemoryTrackerGetBufferType(buffer), gfx_buffer.allocation_->GetSize(), buffer.getName());
+#endif // GFX_ENABLE_MEMORY_TRACKER
         buffer.stride = sizeof(uint32_t);
         gfx_buffer.reference_count_ = (uint32_t *)gfxMalloc(sizeof(uint32_t));
         GFX_ASSERT(gfx_buffer.reference_count_ != nullptr);
@@ -2064,7 +2064,7 @@ public:
 #ifdef GFX_ENABLE_MEMORY_TRACKER
         if(gfxMemoryTrackerIsInitialized())
             if(!buffers_[buffer].is_range_ && !buffers_[buffer].isInterop()) // Very convenient that isInterop checks the allocation_, so it also catches buffers that were failed to create
-                gfxMemoryTrackerRecordRelease(buffer.handle, GfxMemoryTrackerResourceType::Buffer);
+                gfxMemoryTrackerRecordRelease(buffer.handle, gfxMemoryTrackerGetBufferType(buffer));
 #endif // GFX_ENABLE_MEMORY_TRACKER
         collect(buffers_[buffer]);  // release resources
         buffers_.erase(buffer); // destroy buffer
@@ -5592,7 +5592,7 @@ public:
             gfx_buffer.allocation_ = allocation;
 #ifdef GFX_ENABLE_MEMORY_TRACKER
             if(gfxMemoryTrackerIsInitialized())
-                gfxMemoryTrackerRecordResize(buffer.handle, GfxMemoryTrackerResourceType::Buffer, allocation->GetSize());
+                gfxMemoryTrackerRecordResize(buffer.handle, GfxMemoryTrackerResourceType::DeviceBuffer, allocation->GetSize()); // DeviceBuffer is hardcoded because we rejected it above
 #endif // GFX_ENABLE_MEMORY_TRACKER
             gfx_buffer.flags_ &= ~Object::kFlag_Named;
             gfx_buffer.reference_count_  = (uint32_t *)gfxMalloc(sizeof(uint32_t));

@@ -43,11 +43,13 @@ GfxResult gfxMemoryTrackerPopNamespace();
 #if !defined(GFX_INCLUDE_MEMORY_TRACKER_INTERNAL_H) && defined(GFX_ENABLE_MEMORY_TRACKER) && defined(GFX_MEMORY_TRACKER_INTERNAL)
 #define GFX_INCLUDE_MEMORY_TRACKER_INTERNAL_H
 
+class GfxBuffer;
 class GfxTexture;
 
 enum class GfxMemoryTrackerResourceType : std::uint8_t
 {
-    Buffer,
+    DeviceBuffer,
+    CpuVisibleBuffer,
     Texture2D,
     Texture2DArray,
     Texture3D,
@@ -58,6 +60,7 @@ GfxResult gfxMemoryTrackerRecordAllocation(uint64_t handle, GfxMemoryTrackerReso
 GfxResult gfxMemoryTrackerRecordRelease(uint64_t handle, GfxMemoryTrackerResourceType type);
 GfxResult gfxMemoryTrackerRecordResize(uint64_t handle, GfxMemoryTrackerResourceType type, uint64_t new_size);
 GfxMemoryTrackerResourceType gfxMemoryTrackerGetTextureType(GfxTexture const& texture);
+GfxMemoryTrackerResourceType gfxMemoryTrackerGetBufferType(GfxBuffer const& buffer);
 bool gfxMemoryTrackerIsInitialized();
 
 #endif //! GFX_INCLUDE_MEMORY_TRACKER_INTERNAL_H
